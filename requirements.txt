@@ -1,0 +1,5 @@
+lz4==4.4.5
+numpy==2.0.2
+rosbags==0.9.23
+ruamel.yaml==0.19.1
+zstandard==0.25.0
