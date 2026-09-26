@@ -424,16 +424,29 @@ RoboStack 的价值在于：**他们把 ROS 编译好了，直接下载就能用
 
 | 软件包 | osx-arm64（你的 Mac）支持情况 |
 |---|---|
-| `ros-noetic-desktop`（ROS 本体） | ✅ 有，最新构建 2026-03-15 |
+| `ros-noetic-desktop`（ROS 本体） | ⚠️ 有，但**最新的 2026-03 构建（py312 版）在 Apple Silicon 上有致命 bug**，必须用 2025-03 的旧构建（见 2.4 的固定写法） |
 | `ros-noetic-pcl-ros`（点云库） | ✅ 有 |
 | `ros-noetic-pcl-conversions` | ✅ 有 |
 | `ros-noetic-rviz`（可视化） | ✅ 有 |
 | `ros-noetic-rosbag`（读 bag） | ✅ 有 |
 | `ros-noetic-tf2-ros`（坐标变换） | ✅ 有 |
 | `ros-noetic-catkin`（编译工具） | ✅ 有 |
-| `pcl`（点云库本体） | ✅ 有，1.15.1 原生 arm64 |
+| `pcl`（点云库本体） | ✅ 有 |
 | ❌ `ros-noetic-rqt` | 元包缺失（不影响，用 RViz 就行） |
 | ❌ `catkin_tools` | 无 arm64 版（用自带的 `catkin_make` 就行） |
+
+> ### 🔴 亲历事故通报（2026-09-26）
+>
+> 按「最新版」装出来的 py312 构建，`rosrun`、`rospack` 会在启动瞬间崩溃：
+> ```
+> dyld: symbol not found in flat namespace '__Py_NoneStruct'
+> ```
+> **原因**（说人话）：RoboStack 2026 年重新编译时，「rospack」这个负责查找包的工具
+> 不再自己声明「我需要 Python 库」，而是赌运行时会有人先加载好——在 Linux 上没事，
+> 在 macOS 的新系统上必崩。旧版（2025-03，基于 Python 3.11）是自己声明的，反而没事。
+>
+> **教训：包管理器装东西，「最新」不等于「能用」。旧一年的稳定版才是答案。**
+> 下面的 2.4 会教你把版本钉死，照做即可，**不要自己删掉版本号**。
 
 **关键结论：这套方案是原生 arm64，走全速，不会像虚拟机或 Docker 那样卡。**
 
@@ -498,10 +511,14 @@ uname -m
 
 ### 创建
 
+> ✅ **如果你的 `ros_noetic` 环境已经在 2026-09-26 之后建过（包括被修复过的那次），本节可以整体跳过**——环境已就绪，从 2.5 开始对照检查环境变量即可。
+> 下面的命令是给**重装 / 换电脑 / 环境又搞坏**时用的，务必原样照抄。
+
 ```bash
 micromamba create -n ros_noetic \
   -c conda-forge -c robostack-noetic \
-  ros-noetic-desktop
+  python=3.11 \
+  "ros-noetic-desktop=1.5.0=np126py311h7b59bab_22"
 ```
 
 **这条命令在干什么**：
@@ -512,30 +529,50 @@ micromamba create -n ros_noetic \
 | `-n ros_noetic` | 环境名字叫 `ros_noetic`（你可以随便起名） |
 | `-c conda-forge` | 从 `conda-forge` 这个仓库找包（基础软件） |
 | `-c robostack-noetic` | 从 `robostack-noetic` 这个仓库找包（ROS 本体） |
-| `ros-noetic-desktop` | 要装的包：ROS Noetic 桌面版（含 RViz 等工具） |
+| `python=3.11` | ★ 强制 Python 3.11（新构建才是 3.12，别用） |
+| `"ros-noetic-desktop=1.5.0=np126py311h7b59bab_22"` | ★ **钉死到 2025-03 的旧构建**（np126=NumPy1.26，py311=Python3.11）。这个组合是官方自洽、验证过的 |
+
+> ⚠️ 再次强调：**这两个带 ★ 的参数一个都不能删、不能改。**
+> 不钉版本的话，包管理器会默认装 2026 年的新构建，就会遇到
+> `dyld: symbol not found in flat namespace '__Py_NoneStruct'`（见 2.2 的事故通报）。
 
 > **什么是 Noetic？** ROS 1 有多个版本，用字母排序：Kinetic → Melodic → **Noetic**。Noetic 是 ROS 1 的最后一个版本，也是最成熟的。学长的 Autolabor 平台大概率也是这个。
 
-**这一步会下载几百 MB，可能要等 5 ~ 20 分钟**（看网速）。去泡杯咖啡。
+**这一步会下载几百 MB，可能要等 5 ~ 20 分钟**（如果之前装过环境，大部分包在本地缓存里，会快很多）。去泡杯咖啡。
 
 ### 把仓库固化到环境里
 
-装完之后，运行这两条：
+新 micromamba（3.x）的 `config --env` 写法变了，最省事的方式是**直接手写这个文件**。
+用任意编辑器打开（或新建）：
 
-```bash
-micromamba config append channels robostack-noetic --env -n ros_noetic
-micromamba config append channels conda-forge --env -n ros_noetic
+```
+/Users/nathaniel/micromamba/envs/ros_noetic/.condarc
+```
+
+写入以下内容（`micromamba` 后面的路径以你机器上 `micromamba env list` 显示的为准）：
+
+```yaml
+channels:
+  - robostack-noetic
+  - conda-forge
 ```
 
 **这是干什么的**：以后你在 `ros_noetic` 环境里装新包时，不用每次都写 `-c robostack-noetic` 了。
+（你的环境里这个文件已经配好，无需重复操作。）
 
 ### 装编译工具链（**这步不能省**）
 
 ```bash
 micromamba install -n ros_noetic \
   -c conda-forge \
-  compilers cmake ninja make pkg-config
+  compilers "cmake<4" ninja make pkg-config
 ```
+
+> ⚠️ **`"cmake<4"` 的引号和 `<4` 不能少。**
+> 原因：ROS Noetic 自带的构建脚本写的是「兼容 2010 年代的 CMake」，
+> 而 2025 年发布的 CMake 4.x 拒绝再兼容这些老脚本，会报
+> `CMake Error at CMakeLists.txt:4 (cmake_minimum_required)`。
+> 钉到 3.31.x 才能正常 `catkin_make`。（你的环境已按此配好。）
 
 **为什么必须装**：
 
@@ -733,6 +770,11 @@ catkin_make
 
 **应该看到**：一堆输出，最后是 `#### Running command: "make -j8" in ...`，没有报错。
 
+> ✅ **你的机器上这个工作空间已经建好了**（2026-09-26 修环境时顺手建的）：
+> `catkin_ws/` 已编译通过，里面还放了文档 3.6 节的示例包 `hello_ros`（已编译、
+> 并已用 `timu.bag` 实测收到点云回调）。你可以直接跳到 2.6 的五项验证，
+> 或到 3.6 节对照跑通里程碑——命令都是现成的。
+
 ### 让它自动生效
 
 每次开新终端都要 `source` 一下才能让 ROS 找到你的包，很烦。加到配置文件里：
@@ -776,11 +818,14 @@ brew install --cask visual-studio-code
 
 ### 情况 A：某个包装不上
 
-RoboStack 的包更新很频繁，先试试整体更新：
-
-```bash
-micromamba update -n ros_noetic --all
-```
+> ⛔ **千万不要执行 `micromamba update -n ros_noetic --all`（或任何不带版本号的 update）！**
+> 那会把锁定的 py311 旧栈整体升级到 2026 年的 py312 新栈，
+> 精确复现 2.2 节那个 `__Py_NoneStruct` 崩溃。
+> 装缺失的包时，带上环境里已有的版本线约束，例如：
+> ```bash
+> micromamba install -n ros_noetic "python=3.11" ros-noetic-pcl-ros
+> ```
+> 让解算器在 py311 时代内找包，而不是把整个环境往上带。
 
 ### 情况 B：环境彻底搞坏了
 
@@ -3234,6 +3279,8 @@ top -pid $(pgrep -f cone_color_guesser)
 
 | 报错信息 | 原因 | 解决 |
 |---|---|---|
+| `dyld: symbol not found in flat namespace '__Py_NoneStruct'`（`rosrun`/`rospack` 一启动就崩） | 装到了 2026 年的 py312 坏构建（见 2.2 事故通报） | 按 2.4 的钉死命令重建环境：`micromamba env remove -n ros_noetic` 后用带 `python=3.11` 和 `np126py311h7b59bab_22` 的 create 命令 |
+| `CMake Error ... cmake_minimum_required`（`catkin_make` 一开始就报） | CMake 4.x 不再兼容 Noetic 的老构建脚本 | `micromamba install -n ros_noetic "cmake<4"` |
 | `RLException: Unable to contact my own server` | macOS 主机名解析问题 | 设 `ROS_MASTER_URI`/`ROS_HOSTNAME`/`ROS_IP`（见 2.5） |
 | `[rospack] Error: package 'xxx' not found` | 没 source | `source devel/setup.zsh` |
 | `fatal error: 'pcl/point_types.h' file not found` | PCL 路径没进来 | CMakeLists 加 `${PCL_INCLUDE_DIRS}` |
