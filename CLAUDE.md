@@ -46,6 +46,7 @@ uv sync                                         # 安装依赖
 - 杂点识别：帧内最近邻 < 0.5 m 即杂点；z > 0.9 m 丢弃
 - 左右判断必须先经 TF 转到 `imu_link`（此 bag 没有 base_link），REP-103：y > 0 = 车左 = 红
 - 赛道宽约 3.07 m；所有阈值参数放 `config/params.yaml`，不要硬编码
+- **bag 时钟错位**：点云 stamp（2025-09）比 `/tf` stamp（2025-03）快约 171.78 天（录制机器未对时）。跑节点必须 `rosbag play --clock` + `/use_sim_time=true`，且 `transformToBody()` 按 stamp 查询失败时回退 `ros::Time(0)`（已实现，详见指南 §6.7「bag 时钟错位」）
 
 ## 环境踩坑（改动环境前必读）
 

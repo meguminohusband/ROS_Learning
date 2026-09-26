@@ -2968,7 +2968,7 @@ rviz
 
 在 RViz 里：
 
-1. `Global Options` → `Fixed Frame` → 填 `imu_link`
+1. `Global Options` → `Fixed Frame` → 填 `imu_map`（节点输出的是**地图系**坐标，锥桶在世界里不动；若填 `imu_link`，整张图会跟着车跑）
 2. `Add` → `By Topic` → `/cones/colored` → `PointCloud2`
 3. 在 PointCloud2 设置里把 `Color Transformer` 改成 **`RGB8`**（★ 这步必须做，否则颜色是灰的！）
 4. `Size (m)` 调到 `0.2`
@@ -2984,6 +2984,12 @@ rviz
 
 ```xml
 <launch>
+  <!-- ★ 关键：bag 的时间戳是 2025 年录的，比现在早。
+       不开仿真时间，tf2 会把所有 TF 当"过期数据"丢弃
+       （TF_OLD_DATA ignoring data from the past），点云就会一直"坐标变换失败"。
+       详见 6.7「bag 时钟错位」。 -->
+  <param name="/use_sim_time" value="true"/>
+
   <!-- 加载参数文件 -->
   <rosparam command="load"
             file="$(find cone_color_guesser)/config/params.yaml"/>
@@ -3035,11 +3041,43 @@ debug_clean_pub_.publish(cloud_clean);
 |---|---|
 | RViz 里什么都没有 | `rostopic hz /cones/colored` —— 有输出吗？ |
 | 节点完全没反应 | `rostopic hz /only_lidar_points_pub` —— 数据来了吗？话题名对吗？ |
-| 报 `TF 查询失败` | bag 在播放吗？`rosrun tf tf_echo imu_map imu_link` 有输出吗？ |
+| 报 `TF 查询失败` | bag 在播放吗？`rosrun tf tf_echo imu_map imu_link` 有输出吗？若报 extrapolation 几十天 → 见下方「bag 时钟错位」 |
 | 红蓝大量搞反 | 打印几个锥桶的 y 值，确认坐标系方向对不对 |
 | RViz 里点是灰色的 | `Color Transformer` 改成 `RGB8`，不是 `AxisColor` |
 | 锥桶一个都没配上对 | 打印实际点间距，看是不是落在 [2.0, 4.5] 之外 |
 | 频率很低 | 看日志里的「耗时 xx ms」，超过 100ms 就会跟丢 |
+
+### ⚠️ bag 时钟错位：TF 永远查不到的真实案例（2026-09-26 踩坑实录）
+
+**症状**：bag 在播、话题都在，但节点每帧都打 `坐标变换失败，跳过这一帧`，RViz 全空。日志里能看到两种报错之一：
+
+```
+TF 查询失败: Lookup would require extrapolation 14842022.8s into the future.
+Requested time 1757477302.7 but the latest data is at time 1742635279.8
+```
+或者（没开 use_sim_time 时）：
+```
+Warning: TF_OLD_DATA ignoring data from the past ... for frame imu_link
+```
+
+**诊断**：14842022 秒 ≈ **171.78 天**。`timu.bag` 里点云的 `header.stamp` 是 2025-09-10（雷达机器时钟正常），但 `/tf` 的 stamp 是 2025-03-22——录制时发 TF 的那台机器**没做 NTP 对时**，时钟慢了大半年。两话题消息的接收时间其实完全同步（都是 60.07 秒），所以这是「stamp 打架」而不是「数据错位」。验证命令：
+
+```bash
+micromamba activate ros_noetic
+python - <<'EOF'
+import rosbag
+b = rosbag.Bag("timu.bag")
+tf0  = next(m.transforms[0].header.stamp.to_sec() for _, m, _ in b.read_messages(topics=["/tf"]))
+pc0  = next(m.header.stamp.to_sec() for _, m, _ in b.read_messages(topics=["/only_lidar_points_pub"]))
+print(f"点云 stamp - TF stamp = {pc0 - tf0:.0f} 秒")   # 期望 ≈ 14842023
+EOF
+```
+
+**修复（本项目已做好）**：两处缺一不可——
+1. `guess.launch` 里 `<param name="/use_sim_time" value="true"/>`，且 `rosbag play` 带 `--clock`。否则 tf2 按你机器的墙钟（2026 年）判定所有 TF 是"过期数据"，直接丢弃。
+2. `transformToBody()` 里按 `stamp` 查询失败时，回退用 `ros::Time(0)`（缓冲区最新 TF）。因为点云 stamp 永远落在 TF 时间线"未来"，按 stamp 查必败；而两话题物理时间同步，最新 TF 就是这帧点云对应的变换。**实车上时钟是对齐的，stamp 查询会直接成功，回退永远不触发**——这个补丁不牺牲正确性。
+
+> 🔑 **教训**：拿到别人的 bag，先核对各话题 `header.stamp` 是否同一天。ROS 里一切靠时间戳对齐，时钟错位的 bag 能把"教科书正确"的代码全部干翻。
 
 ### 最有效的三句话
 
@@ -3287,6 +3325,8 @@ top -pid $(pgrep -f cone_color_guesser)
 | `Undefined symbols for architecture arm64` | 混用 x86 和 arm64 库 | `uname -m` 确认 arm64；删 `build/` `devel/` 重编 |
 | `error: use of undeclared identifier '__builtin_ia32_...'` | `PCL_DEFINITIONS` 带进 x86 指令 | 删掉 `add_definitions(${PCL_DEFINITIONS})` |
 | `LookupException: Could not find transform` | TF 时间戳对不上 | 确认 bag 在播放；用 `msg->header.stamp` |
+| `TF_OLD_DATA ignoring data from the past`（每帧变换失败） | 节点按墙钟判定 bag 里的 TF 是过期数据 | launch 设 `/use_sim_time=true` + `rosbag play --clock`（见 6.7） |
+| `Lookup would require extrapolation xxx into the future`（xxx 是几百万秒） | bag 内部各话题 `header.stamp` 时钟错位（timu.bag 实测 171.78 天） | 按 6.7「bag 时钟错位」处理：stamp 失败时回退 `ros::Time(0)` |
 | `Connection refused` / 收不到消息 | bag 没播放 | 检查终端 1 |
 | RViz 里点是灰色的 | Color Transformer 不对 | 改成 `RGB8` |
 | RViz 里显示 `No transform from [xxx]` | Fixed Frame 设错 | 改成 `imu_link` 或 `imu_map` |

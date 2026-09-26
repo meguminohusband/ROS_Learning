@@ -1,0 +1,44 @@
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+  - Class: rviz/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz/Grid
+      Enabled: true
+      Name: Grid
+      Cell Size: 5
+    - Class: rviz/PointCloud2
+      Color Transformer: RGB8
+      Enabled: true
+      Name: 有色锥桶
+      Size (m): 0.3
+      Topic: /cones/colored
+      Autocompute Intensity Bounds: false
+      Use Fixed Frame: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /cones/markers
+      Name: 锥桶球
+  Global Options:
+    Background Color: 38; 38; 38
+    Fixed Frame: imu_map
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+  Value: true
+  Views:
+    Current:
+      Class: rviz/Orbit
+      Distance: 70
+      Focal Point:
+        X: -10
+        Y: 8
+        Z: 0
+      Pitch: 1.2
+      Yaw: 0.78
+    Name: Current View

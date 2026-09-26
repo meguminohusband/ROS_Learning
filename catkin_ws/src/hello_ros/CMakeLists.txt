@@ -206,3 +206,4 @@ include_directories(
 
 add_executable(hello_node src/hello.cpp)
 target_link_libraries(hello_node ${catkin_LIBRARIES})
+
