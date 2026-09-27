@@ -1,25 +1,57 @@
 <launch>
-  <!-- ★ 关键：bag 的时间戳是 2025 年录的，比现在早半年。
-       不开仿真时间，tf2 会把所有 TF 当"过期数据"丢弃
-       （TF_OLD_DATA ignoring data from the past），点云就会一直"坐标变换失败"。 -->
+  <!-- ============================================================
+       cone_color_guesser 一键启动：参数 + 播放 timu.bag + 节点 + RViz
+
+       用法：
+         roslaunch cone_color_guesser guess.launch                 # 完整（带 RViz）
+         roslaunch cone_color_guesser guess.launch rviz:=false     # 不带 RViz（纯终端验证）
+         roslaunch cone_color_guesser guess.launch loop:=true      # 循环播放，方便反复观察
+         roslaunch cone_color_guesser guess.launch rate:=0.5       # 半速播放，看得更细
+         roslaunch cone_color_guesser guess.launch bag:=/abs/timu.bag
+       ============================================================ -->
+
+  <!-- ===== 可调参数 ===== -->
+  <arg name="bag"  default="$(env HOME)/Documents/Python_Project/ROS/timu.bag"/>
+  <arg name="rviz" default="true"/>
+  <arg name="loop" default="false"/>
+  <arg name="rate" default="1.0"/>
+
+  <!-- 必须开仿真时间。bag 的时间戳是 2025-09 录的，比现在早半年；
+       不开的话 tf2 会把所有 TF 当成「过期数据」丢弃（TF_OLD_DATA），
+       点云会一直报「坐标变换失败」。 -->
   <param name="/use_sim_time" value="true"/>
 
-  <!-- 加载参数文件 -->
-  <rosparam command="load"
-            file="$(find cone_color_guesser)/config/params.yaml"/>
+  <!-- ===== 节点 =====
+       参数必须放在 node 标签【里面】，才会加载到节点的私有命名空间
+       （即 /cone_color_guesser）。若放在 launch 顶层会加载到全局 /，
+       而节点用 nh_("~") 读参数，结果是「参数文件根本不生效，
+       节点静默退回代码里的内置默认值」。 -->
+  <node pkg="cone_color_guesser" type="cone_color_guesser_node"
+        name="cone_color_guesser" output="screen">
+    <rosparam command="load" file="$(find cone_color_guesser)/config/params.yaml"/>
+  </node>
 
-  <!-- 播放 bag -->
-  <node pkg="rosbag" type="play" name="player"
-        args="--loop --clock $(env HOME)/Documents/Python_Project/ROS/timu.bag"
-        output="screen"/>
+  <!-- ===== 播放 bag =====
+       参数含义（rosbag play 选项）：
+         clock                发布 /clock，配合上面的 use_sim_time
+         wait-for-subscribers 等节点/RViz 订阅上再开始播，避免丢开头几帧
+                              （否则开头几帧没人收，车辆路径建不起来）
+         delay=1.0            每次 advertise 后等 1 秒，给订阅者连接时间
+         loop                 （下面第二个节点）循环播放
 
-  <!-- 你的节点 -->
-  <node pkg="cone_color_guesser"
-        type="cone_color_guesser_node"
-        name="cone_color_guesser"
-        output="screen"/>
+       output 用 log 而不是 screen：rosbag play 的进度条用 \r 原地刷新，
+       在 roslaunch 里会被逐行加前缀变成刷屏（实测 22 秒刷出 233 KB），
+       把节点自己的输出淹掉。需要看进度就 tail 这个日志文件，或者在
+       另一个终端单独跑 rosbag play。
+       ===== -->
+  <node pkg="rosbag" type="play" name="player" output="log"
+        args="--clock --rate=$(arg rate) --wait-for-subscribers --delay=1.0 $(arg bag)"
+        unless="$(arg loop)"/>
+  <node pkg="rosbag" type="play" name="player" output="log"
+        args="--clock --loop --rate=$(arg rate) --wait-for-subscribers --delay=1.0 $(arg bag)"
+        if="$(arg loop)"/>
 
-  <!-- RViz -->
-  <node pkg="rviz" type="rviz" name="rviz"
+  <!-- ===== RViz ===== -->
+  <node pkg="rviz" type="rviz" name="rviz" if="$(arg rviz)"
         args="-d $(find cone_color_guesser)/rviz/cone.rviz"/>
 </launch>

@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+# 分析脚本的中间产物（可用 tools/diag_geometry.py、tools/sim_algorithms.py 重新生成）
+tools/_*.npy
+tools/_*.npz
