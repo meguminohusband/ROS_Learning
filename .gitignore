@@ -9,10 +9,14 @@ wheels/
 # Virtual environments
 .venv
 
+# catkin 编译产物（生成物，源码只需跟踪 catkin_ws/src）
+# 无前导斜杠，同时匹配根目录的 devel/ 和 catkin_ws/devel/
+devel/
+
 # 分析脚本的中间产物（可用 tools/diag_geometry.py、tools/sim_algorithms.py 重新生成）
 tools/_*.npy
 tools/_*.npz
 
-.DS.Store
+.DS_Store
 .vscode
 .workbuddy
